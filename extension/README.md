@@ -46,11 +46,11 @@ Once it's in a store, set `NEXT_PUBLIC_EXTENSION_CHROME_URL`, `…_FIREFOX_URL`,
 | Look back | `grant.html`, `src/grant.ts` | "Start with the past two days?" The background script opens it in a small window when a White Rabbit tab says Rabbit was just turned on (`lookBack`). **Allow** asks the browser for the optional `history` permission; browsers ask only from a click on the extension's own page. The app holds Rabbit's first look until it's answered or closed. |
 | Content script | `src/bridge.ts` | Runs only on the White Rabbit origins it was built for, from `document_start`. Announces itself (`present`), relays the page's `hello` / `capture` / `forget` requests to the background script, and hands over a rabbit hole picked in the popup. |
 | Popup | `popup.html`, `src/popup.ts` | Whether it's on, **Open White Rabbit**, the current possible rabbit hole with **Review** and **Ignore**, pause controls, and settings. |
-| Shared code | `../src/lib/capture/{snapshot,detect,search-engines}.ts` | The same capture and detection code the web app uses |
+| Shared code | `../src/lib/capture/{snapshot,detect,search-engines,clean-url}.ts` | The same capture, detection and address-cleaning code the web app uses |
 
 The background script answers `hello`, `capture`, `pull`, `forget`, and `lookBack` only from White Rabbit pages, and the popup's own messages only from the popup. The app validates everything it receives and applies the person's rules again.
 
-Anything running in a White Rabbit page can ask for the same things the page can, including other extensions you've allowed on www.whiterabbt.com, which could read the page itself anyway. The site loads no third-party scripts.
+Anything running in a White Rabbit page can ask for the same things the page can, including other extensions you've allowed on www.whiterabbt.com, which could read the page itself anyway. White Rabbit never loads Google's ad script in a tab where the extension is connected, and if an ad script, ad slot or ad frame shows up in a tab anyway, the content script stops passing anything but `hello` for as long as that page is open (`hello` then says `ads: true`).
 
 ## Privacy rules enforced here
 

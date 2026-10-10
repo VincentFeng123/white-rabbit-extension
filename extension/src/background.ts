@@ -3,13 +3,15 @@
  * an event page in Firefox).
  *
  * It records page views in normal windows (never private ones), dropping
- * anything the person's rules exclude before it's stored, and keeps a rolling
- * week on this device. Whenever a White Rabbit tab asks (it does so by itself
- * when it opens or comes back into view), it gathers the open tabs, the pages
- * it recorded, and — where the browser has a history API (Chromium, Firefox)
- * and the person allowed it — the browser's own history for the past week,
- * runs every exclusion rule, and hands the result to that tab. Nothing is
- * sent anywhere else.
+ * anything the person's rules exclude and cleaning every address of
+ * fragments, tokens and other secret-looking parameters before it's stored
+ * (src/lib/capture/clean-url.ts), and keeps a rolling week on this device.
+ * Whenever a White Rabbit tab asks (it does so by itself when it opens or
+ * comes back into view), it gathers the open tabs, the pages it recorded,
+ * and — where the browser has a history API (Chromium, Firefox) and the
+ * person allowed it — the browser's own history for the past week, runs
+ * every exclusion rule, and hands the result to that tab. Nothing is sent
+ * anywhere else.
  *
  * History is an optional permission, never asked for at install: White
  * Rabbit asks for it when the person turns on Rabbit (askForHistory, which
@@ -17,6 +19,7 @@
  * was added.
  */
 
+import { cleanPage, cleanUrl } from "../../src/lib/capture/clean-url";
 import {
   clusterBrowsingEvents,
   exclusionReason,
@@ -147,7 +150,8 @@ ext.webNavigation.onCommitted.addListener(
     const tab = await ext.tabs.get(d.tabId).catch(() => null);
     if (tab?.incognito) return;
 
-    const event: DetectEvent = {
+    // Only the cleaned address is ever written down, and a private link isn't at all.
+    const event = cleanPage<DetectEvent>({
       id: `ev_${Math.round(d.timeStamp)}_${d.tabId}`,
       url: d.url,
       title: tab?.title || domain,
@@ -163,9 +167,9 @@ ext.webNavigation.onCommitted.addListener(
             ? "reload"
             : "link",
       dwellSeconds: 0,
-    };
+    });
     // Excluded pages are never written down, not even locally.
-    if (exclusionReason(event, rules(s)) !== null) return;
+    if (!event || exclusionReason(event, rules(s)) !== null) return;
 
     const cutoff = Date.now() - WEEK_MS;
     const events = [...store.events.filter((e) => new Date(e.at).getTime() > cutoff), event].slice(-MAX_EVENTS);
@@ -182,7 +186,9 @@ ext.tabs.onUpdated.addListener(async (tabId: number, info: { title?: string }) =
   const open = openViews.get(tabId);
   if (!open) return;
   const store = await load();
-  await save({ events: store.events.map((e) => (e.id === open.id ? { ...e, title: info.title! } : e)) });
+  // A page without a title of its own is titled with its address: cleaned, like the address.
+  const titled = (e: DetectEvent) => cleanPage({ ...e, title: info.title! }) ?? e;
+  await save({ events: store.events.map((e) => (e.id === open.id ? titled(e) : e)) });
 });
 
 ext.tabs.onRemoved.addListener((tabId: number) => closeView(tabId));
@@ -237,6 +243,11 @@ async function connectOpenTabs(): Promise<boolean> {
 }
 
 ext.runtime.onInstalled.addListener(async (details: { reason: string }) => {
+  if (details.reason === "update") {
+    // Pages recorded by an earlier version kept whole addresses: clean them, and drop private links.
+    const store = await load();
+    await save({ events: store.events.flatMap((e) => cleanPage(e) ?? []) });
+  }
   const connected = await connectOpenTabs();
   // Installed from a store page with no White Rabbit tab open: show where rabbit holes will appear.
   if (details.reason === "install" && !connected) await ext.tabs.create({ url: `${APP_ORIGIN}/` });
@@ -259,8 +270,14 @@ async function historyPages(since: number, recorded: DetectEvent[]): Promise<Det
   if (!(await canReadHistory())) return [];
   const items: { id: string; url?: string; title?: string; lastVisitTime?: number; typedCount?: number }[] =
     await ext.history.search({ text: "", startTime: since, maxResults: 5000 });
+  // Each address as it's kept (the browser still looks its visits up by the whole one); private links aren't.
+  const kept = new Map<string, string>();
+  for (const it of items) {
+    const url = it.url && /^https?:/.test(it.url) ? cleanUrl(it.url) : null;
+    if (url) kept.set(it.url!, url);
+  }
   const recent = items
-    .filter((it) => it.url && /^https?:/.test(it.url))
+    .filter((it) => it.url && kept.has(it.url))
     .sort((a, b) => (b.lastVisitTime ?? 0) - (a.lastVisitTime ?? 0))
     .slice(0, MAX_HISTORY_ITEMS);
 
@@ -277,7 +294,7 @@ async function historyPages(since: number, recorded: DetectEvent[]): Promise<Det
   );
 
   const urlOfVisit = new Map<string, string>();
-  for (const { it, vs } of visits) for (const v of vs) urlOfVisit.set(v.visitId, it.url!);
+  for (const { it, vs } of visits) for (const v of vs) urlOfVisit.set(v.visitId, kept.get(it.url!)!);
 
   // Pages this extension already recorded carry tabs and reading time; prefer those.
   const recordedAt = new Map<string, number[]>();
@@ -290,7 +307,7 @@ async function historyPages(since: number, recorded: DetectEvent[]): Promise<Det
 
   const out: DetectEvent[] = [];
   for (const { it, vs } of visits) {
-    const url = it.url!;
+    const url = kept.get(it.url!)!;
     const list = vs.length
       ? vs
       : [
@@ -491,7 +508,11 @@ ext.runtime.onMessage.addListener(
           if (!cluster) return reply({ ok: false });
           // Only this rabbit hole's pages leave the extension, and only to the White Rabbit tab.
           await save({
-            pendingReview: { topic: cluster.topic, minutes: cluster.minutes, pages: cluster.events },
+            pendingReview: {
+              topic: cluster.topic,
+              minutes: cluster.minutes,
+              pages: cluster.events.flatMap((e) => cleanPage(e) ?? []),
+            },
             decisions: { ...store.decisions, [msg.id]: "reviewed" },
           });
           await ext.tabs.create({ url: `${APP_ORIGIN}/` });

@@ -6,7 +6,8 @@ The parts of [White Rabbit](https://www.whiterabbt.com) that run on your compute
 
 - It records the pages you open in normal browser windows: each page's address, title, when you were there, and which page led to which. It never runs in incognito or private windows.
 - Pages on sites you exclude, in the categories it skips (banking, health, email, work tools, password managers, adult), and sign-in, account and checkout pages are dropped before anything is stored. It keeps a week at most, on your computer.
-- It hands what it recorded only to White Rabbit's own tabs in the same browser (https://www.whiterabbt.com). The extension itself makes no network requests and loads no code from anywhere: there's no `fetch`, no analytics, and no `eval` in it.
+- Every address is cleaned before it's stored ([`src/lib/capture/clean-url.ts`](src/lib/capture/clean-url.ts)): the part after `#`, sign-in and reset tokens, codes, keys, signatures, session ids and click trackers are cut, and a link that is itself the way in to something private (a shared Google Doc, a Dropbox or OneDrive link, a meeting, an invite) isn't kept at all.
+- It hands what it recorded only to White Rabbit's own tabs in the same browser (https://www.whiterabbt.com). The extension itself makes no network requests and loads no code from anywhere: there's no `fetch`, no analytics, and no `eval` in it. It hands nothing to a page that has ads in it: if Google's ad script, an ad slot or an ad frame appears in a White Rabbit tab, it stops answering that tab until it's reloaded.
 - When you add it, your browser says it can "Read your browsing history" (open tabs and where you navigate). Your browser's own history is an optional permission. It's asked for only when you turn on Rabbit, in a small window of its own ([`extension/grant.html`](extension/grant.html)), and only if you press Allow there.
 
 What White Rabbit does with your browsing once a White Rabbit tab has it is up to the web app, which isn't in this repository. In White Rabbit's words: Rabbit is off until you turn it on. If you do, once a day White Rabbit sends the page titles and search queries, site names, which page led to which, and time spent from browsing sittings you've finished, plus the titles of your rabbit holes that aren't private and of Rabbit's own earlier suggestions, to our AI provider, so Rabbit can suggest rabbit holes. Full addresses, the sites and categories you exclude, and incognito windows are never sent. The provider can't use it to train its models, and nothing is shared until you review it. To see exactly what Rabbit would send next, open **Settings → Capture & privacy → See exactly what Rabbit would send** on White Rabbit. The full [privacy policy](https://www.whiterabbt.com/help/privacy) covers the rest.
@@ -15,7 +16,7 @@ What White Rabbit does with your browsing once a White Rabbit tab has it is up t
 
 Safari won't let a secure web page talk to an extension the way other browsers do, so on a Mac, Safari connects through White Rabbit Helper, a small menu bar app ([`helper/`](helper)). It reads Safari's history file (`~/Library/Safari/History.db`), which macOS allows only once you've given it Full Disk Access.
 
-Unlike the extension, the Helper sends what it reads to your White Rabbit account: every five minutes, the address, title and time of each new visit. White Rabbit applies your rules before anything is kept, only you can see it, and it's deleted after seven days. Safari doesn't keep Private Browsing in its history, so that's never included.
+Unlike the extension, the Helper sends what it reads to your White Rabbit account: every five minutes, the address (without the part after `#`), title and time of each new visit. White Rabbit applies your rules, and cleans each address with the same `clean-url.ts`, before anything is kept, only you can see it, and it's deleted after seven days. Safari doesn't keep Private Browsing in its history, so that's never included.
 
 A release build connects only to https://www.whiterabbt.com and reads only Safari's own history file, whatever its config file or environment says. `DEBUG=1 helper/build.sh` makes a development build that doesn't have those limits.
 
@@ -49,7 +50,7 @@ The Helper needs a Mac with Xcode: `pnpm build:helper`. Its build isn't reproduc
 | `extension/manifest.mjs` | Each browser's manifest, with every permission it asks for |
 | `extension/origins.mjs` | The only sites the extension talks to |
 | `extension/STORE.md` | What White Rabbit tells the Chrome Web Store and Firefox Add-ons, permission by permission. It names files from the app's repository, where it's kept. |
-| `src/lib/capture/` | Detection and exclusion rules, shared with the web app |
+| `src/lib/capture/` | Detection, exclusion rules and address cleaning, shared with the web app |
 | `helper/` | White Rabbit Helper for Safari on a Mac |
 
 This repository is published from White Rabbit's app repository, where changes are made first.

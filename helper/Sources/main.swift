@@ -129,6 +129,19 @@ struct Visit {
     let time: Double
 }
 
+/**
+ * A visit's address as it's sent: without the part after # (where sign-in flows hand back tokens)
+ * and without a name or password before the host. White Rabbit cleans the rest, such as tokens
+ * and keys in the query, before anything is kept (src/lib/capture/clean-url.ts).
+ */
+func sendable(_ address: String) -> String {
+    let base = address.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? address
+    guard var parts = URLComponents(string: base), parts.user != nil || parts.password != nil else { return base }
+    parts.user = nil
+    parts.password = nil
+    return parts.string ?? base
+}
+
 func columns(_ db: OpaquePointer?, _ table: String) -> Set<String> {
     var stmt: OpaquePointer?
     var out = Set<String>()
@@ -240,7 +253,7 @@ final class Syncer {
                     guard v.url.hasPrefix("http://") || v.url.hasPrefix("https://") else { return nil }
                     return [
                         "id": "sf_\(v.id)",
-                        "url": String(v.url.prefix(2000)),
+                        "url": String(sendable(v.url).prefix(2000)),
                         "title": String((v.title ?? "").prefix(400)),
                         "at": isoFormatter.string(from: Date(timeIntervalSinceReferenceDate: v.time)),
                     ]

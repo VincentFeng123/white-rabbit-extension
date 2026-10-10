@@ -32,7 +32,7 @@ shasum -a 256 extension/dist/white-rabbit-chrome.zip extension/dist/white-rabbit
 Upload `extension/dist/white-rabbit-chrome.zip` to the Chrome Web Store (and Edge Add-ons, if you list it there) and `extension/dist/white-rabbit-firefox.zip` to Firefox Add-ons. Firefox also asks for the source, since the scripts are bundled:
 
 ```bash
-git archive --format=zip -o extension/dist/white-rabbit-source.zip HEAD extension src/lib/capture/detect.ts src/lib/capture/snapshot.ts src/lib/capture/search-engines.ts src/lib/ai/text.ts package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json
+git archive --format=zip -o extension/dist/white-rabbit-source.zip HEAD extension src/lib/capture/detect.ts src/lib/capture/snapshot.ts src/lib/capture/search-engines.ts src/lib/capture/clean-url.ts src/lib/ai/text.ts package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json
 ```
 
 Built from it, the scripts match the ones you upload byte for byte. The root `tsconfig.json` is there because it decides how the shared code compiles.
@@ -61,7 +61,7 @@ Notices when you go down a rabbit hole and shows it to you on White Rabbit, priv
 >
 > • Private until you choose. Every rabbit hole it notices waits for you. Share it, keep it private, or ignore it.
 > • Never in incognito or private windows.
-> • Skips what you'd rather keep to yourself: banking, health, email, work tools, password managers, adult sites, sign-in and checkout pages, and any site you add to your Never analyze list.
+> • Skips what you'd rather keep to yourself: banking, health, email, work tools, password managers, adult sites, sign-in and checkout pages, links to shared docs and meetings, and any site you add to your Never analyze list. Addresses are kept without sign-in tokens or other secrets.
 > • Pause it any time, or delete everything it recorded from White Rabbit's settings.
 > • Works in Chrome, Edge, Brave, Opera, Vivaldi, Arc, and Firefox.
 > • Open source: read exactly what it does at https://github.com/VincentFeng123/white-rabbit-extension
@@ -124,7 +124,7 @@ Check all three certifications: not sold to third parties, not used for purposes
 
 **Notes for reviewers:**
 
-> The extension talks only to https://www.whiterabbt.com. To see it work: install it, open https://www.whiterabbt.com and sign up, then visit a few pages that lead from one to the next, for example a search and two results. The toolbar popup shows the possible rabbit hole it noticed. The optional `history` permission is requested from grant.html, a small window the extension opens when you answer "Turn on Rabbit" on White Rabbit, and only when you press Allow there. Settings → Capture & privacy on White Rabbit shows that the extension is connected. Firefox's source: white-rabbit-source.zip. Build it with Node 22 or later and pnpm 11 (`pnpm install --frozen-lockfile`, then `pnpm build:extension` with no environment variables set); the result is extension/dist/firefox.
+> The extension talks only to https://www.whiterabbt.com. To see it work: install it, open https://www.whiterabbt.com and sign up, then visit a few pages that lead from one to the next, for example a search and two results. The toolbar popup shows the possible rabbit hole it noticed. The optional `history` permission is requested from grant.html, a small window the extension opens when you answer "Turn on Rabbit" on White Rabbit, and only when you press Allow there. Settings → Capture & privacy on White Rabbit shows that the extension is connected. Firefox's source: white-rabbit-source.zip. Build it with Node 22 or later and pnpm 11 (`pnpm install --frozen-lockfile`, then `pnpm build:extension` with no environment variables set); the result is extension/dist/firefox. White Rabbit shows ads on its site only in tabs where the extension isn't connected, and the content script hands nothing to a page once an ad script, ad slot or ad frame appears in it (extension/src/bridge.ts), so nothing the extension reads reaches an ad platform.
 
 ## Screenshots
 

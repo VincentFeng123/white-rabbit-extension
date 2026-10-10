@@ -8,8 +8,15 @@
  * "present" is announced as soon as this script runs, so a White Rabbit tab
  * that was open when the extension was installed connects without a reload.
  * Only messages from this same window and origin are relayed.
+ *
+ * Nothing is handed to a page that has ads in it. White Rabbit never loads
+ * Google's ad script in a tab where the extension is connected; if an ad
+ * script, slot or frame shows up in this tab anyway, this stops relaying
+ * anything but "hello" (which then says `ads: true`) for as long as the page
+ * is open, so what the extension holds never reaches an ad platform.
  */
 
+import { AD_MARKS as AD } from "../../src/lib/capture/ad-marks";
 import { ext } from "./shared";
 
 const APP = "white-rabbit-app";
@@ -27,6 +34,22 @@ function post(message: Record<string, unknown>) {
   window.postMessage({ source: EXT, ...message }, window.location.origin);
 }
 
+let ads = false;
+const hasAd = (node: Node) =>
+  node instanceof Element && (node.matches(AD) || node.querySelector(AD) !== null);
+// From document_start, before any of the page's scripts: once seen, for the rest of the page's life.
+const watch = new MutationObserver((records) => {
+  for (const r of records) {
+    if ((r.type === "attributes" && hasAd(r.target)) || Array.from(r.addedNodes).some(hasAd)) {
+      ads = true;
+      watch.disconnect();
+      return;
+    }
+  }
+});
+if (document.querySelector(AD)) ads = true;
+else watch.observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ["src", "id", "class"] });
+
 async function ask<T>(message: Record<string, unknown>): Promise<T> {
   const res = (await ext.runtime.sendMessage(message)) as T & { error?: string };
   if (res && typeof res === "object" && "error" in res && res.error) throw new Error(res.error);
@@ -37,6 +60,10 @@ window.addEventListener("message", async (e: MessageEvent) => {
   if (e.source !== window || e.origin !== window.location.origin || !current()) return;
   const data = e.data as { source?: string; type?: string; id?: string; hours?: unknown; rules?: unknown } | null;
   if (!data || data.source !== APP) return;
+  if (ads && data.type !== "hello") {
+    if (data.id) post({ type: "error", id: data.id, message: "ads" });
+    return;
+  }
 
   try {
     if (data.type === "ready") {
@@ -45,7 +72,7 @@ window.addEventListener("message", async (e: MessageEvent) => {
       if (res.review) post({ type: "review", payload: res.review });
     } else if (data.type === "hello") {
       const res = await ask<Record<string, unknown>>({ type: "hello" });
-      post({ type: "hello", id: data.id, ...res });
+      post({ type: "hello", id: data.id, ...res, ...(ads ? { ads: true } : {}) });
     } else if (data.type === "forget") {
       await ask({ type: "forget" });
     } else if (data.type === "lookBack") {

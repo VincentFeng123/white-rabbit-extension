@@ -5,14 +5,16 @@
  * of app code).
  *
  * Pipeline: drop anything excluded (blocked domains, sensitive categories,
- * sign-in and checkout pages, paused time) → split into sessions at long
- * gaps → link pages that belong together (tab openers, referrers, the same
- * tab, similar titles close in time) → leave out videos and feed pages that
- * share nothing with the rest (autoplay, recommendations) → keep clusters
- * that look like one line of curiosity, scored with an internal confidence.
+ * sign-in and checkout pages, private links, paused time) → split into
+ * sessions at long gaps → link pages that belong together (tab openers,
+ * referrers, the same tab, similar titles close in time) → leave out videos
+ * and feed pages that share nothing with the rest (autoplay,
+ * recommendations) → keep clusters that look like one line of curiosity,
+ * scored with an internal confidence.
  */
 
 import { jaccard, keywords, normalize, phrases, tokens, tokenSet } from "../ai/text";
+import { isPrivateLink } from "./clean-url";
 import { parseSearch } from "./search-engines";
 
 export type Sensitive = "banking" | "medical" | "email" | "work" | "passwords" | "adult";
@@ -62,7 +64,8 @@ export const SENSITIVE_PATTERNS: Record<Sensitive, RegExp[]> = {
   adult: [/porn|xxx|onlyfans|adult/],
 };
 
-const PRIVATE_PATH = /\/(log-?in|sign-?in|sign-?up|auth|oauth|account|settings|checkout|cart|billing|password|reset)(\/|$|\?)/i;
+const PRIVATE_PATH =
+  /\/(log-?in|log-?out|sign-?in|sign-?out|sign-?up|auth|oauth2?|sso|saml|accounts?|settings|checkout|cart|billing|password|forgot-?password|reset|2fa|mfa)(\/|$)/i;
 
 export const SESSION_GAP_MS = 25 * 60_000;
 export const MIN_PAGES = 5;
@@ -86,11 +89,15 @@ export function exclusionReason(e: DetectEvent, rules: DetectRules): string | nu
   for (const cat of rules.excluded) {
     if (SENSITIVE_PATTERNS[cat].some((re) => re.test(e.domain))) return cat;
   }
+  let u: URL;
   try {
-    if (PRIVATE_PATH.test(new URL(e.url).pathname)) return "Sign-in or checkout page";
+    u = new URL(e.url);
   } catch {
     return "Not a web page";
   }
+  if (PRIVATE_PATH.test(u.pathname)) return "Sign-in or checkout page";
+  // Its address is the key to something private: a shared doc, a meeting, an invite (./clean-url).
+  if (isPrivateLink(u)) return "Private link";
   const t = new Date(e.at).getTime();
   if (rules.pausedFrom != null && t >= rules.pausedFrom) {
     if (rules.pausedUntil === "indefinite") return "Paused";

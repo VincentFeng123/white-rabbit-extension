@@ -67,14 +67,8 @@ const ENGINES: Engine[] = [
   },
 ];
 
-/** The search a URL represents, or null for any other page. */
-export function parseSearch(url: string): SearchHit | null {
-  let u: URL;
-  try {
-    u = new URL(url);
-  } catch {
-    return null;
-  }
+/** The engine a URL searches with, and its query, or null for any other page. */
+function match(u: URL): { engine: Engine; query: string } | null {
   if (u.protocol !== "https:" && u.protocol !== "http:") return null;
   const host = u.hostname.replace(/^www\./, "").toLowerCase();
   for (const e of ENGINES) {
@@ -93,7 +87,24 @@ export function parseSearch(url: string): SearchHit | null {
       }
     }
     const clean = query?.replace(/\s+/g, " ").trim();
-    if (clean) return { engine: e.name, query: clean.slice(0, 300) };
+    if (clean) return { engine: e, query: clean.slice(0, 300) };
   }
   return null;
+}
+
+/** The search a URL represents, or null for any other page. */
+export function parseSearch(url: string): SearchHit | null {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return null;
+  }
+  const hit = match(u);
+  return hit ? { engine: hit.engine.name, query: hit.query } : null;
+}
+
+/** The parameters a search keeps its query in ("q"), or null when the URL isn't a search. */
+export function searchQueryParams(u: URL): string[] | null {
+  return match(u)?.engine.params ?? null;
 }

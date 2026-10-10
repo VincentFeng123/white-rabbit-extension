@@ -14,6 +14,8 @@
     "../src/lib/capture/detect.ts",
     "../src/lib/capture/snapshot.ts",
     "../src/lib/capture/search-engines.ts",
+    "../src/lib/capture/clean-url.ts",
+    "../src/lib/capture/ad-marks.ts",
     "../src/lib/ai/text.ts"
   ]
 }

@@ -7,13 +7,16 @@
  * sites. Everything downstream (rabbit-hole detection, storage)
  * only ever sees a CaptureSnapshot.
  *
- * Exclusions (blocked sites, sensitive categories, sign-in pages, paused
- * time) are applied here, before anything is kept.
+ * Exclusions (blocked sites, sensitive categories, sign-in pages, private
+ * links, paused time) are applied here, and every address is cleaned of
+ * fragments, tokens and other secret-looking parameters (./clean-url),
+ * before anything is kept.
  *
  * Shared by the web app and the extension (which compiles this file), so
  * imports stay relative and app-free.
  */
 
+import { cleanPage } from "./clean-url";
 import { exclusionReason, type DetectEvent, type DetectRules } from "./detect";
 import { parseSearch } from "./search-engines";
 
@@ -194,21 +197,39 @@ export function buildSnapshot(input: SnapshotInput): CaptureSnapshot {
   const byId = new Map<string, DetectEvent>();
   for (const p of input.pages) {
     if (!isWeb(p.url)) continue;
-    const page: DetectEvent = { ...p, domain: p.domain || domainOf(p.url), title: (p.title || p.url).slice(0, 300) };
+    const clean = cleanPage(p);
+    if (!clean) {
+      excluded += 1;
+      continue;
+    }
+    const page: DetectEvent = {
+      ...clean,
+      domain: p.domain || domainOf(clean.url),
+      title: (clean.title || clean.url).slice(0, 300),
+    };
     // A page that looks like a search is a search, whatever the browser said.
     if (page.transition !== "reload" && parseSearch(page.url)) page.transition = "search";
     if (exclusionReason(page, input.rules) !== null) {
       excluded += 1;
       continue;
     }
+    // The page it came from is kept only if it could have been kept itself.
+    if (page.referrer && exclusionReason({ ...page, url: page.referrer, domain: domainOf(page.referrer) }, input.rules) !== null)
+      delete page.referrer;
     byId.set(page.id, page);
   }
   const pages = [...byId.values()].sort((a, b) => a.at.localeCompare(b.at)).slice(-MAX_PAGES);
 
   const tabs: CapturedTab[] = [];
   const seenTabs = new Set<string>();
-  for (const t of input.tabs ?? []) {
-    if (!isWeb(t.url) || seenTabs.has(t.url)) continue;
+  for (const raw of input.tabs ?? []) {
+    if (!isWeb(raw.url)) continue;
+    const t = cleanPage(raw);
+    if (!t) {
+      excluded += 1;
+      continue;
+    }
+    if (seenTabs.has(t.url)) continue;
     const domain = t.domain || domainOf(t.url);
     const probe: DetectEvent = {
       id: "tab",

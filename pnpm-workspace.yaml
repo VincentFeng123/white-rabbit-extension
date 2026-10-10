@@ -1,0 +1,4 @@
+allowBuilds:
+  # esbuild finds its binary through its platform package without running
+  # its install script, so nothing here runs a script when installed.
+  esbuild: false

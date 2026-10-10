@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>White Rabbit</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body class="grant">
+    <main id="root">
+      <header><strong>White Rabbit</strong></header>
+      <section class="ask">
+        <h1>Start with the past two days?</h1>
+        <p>
+          With your browser's history, Rabbit's first look can include the past two days, from before you added White
+          Rabbit. Without it, Rabbit starts with what you browse from now on.
+        </p>
+        <p class="card" id="warning"></p>
+        <div class="row end">
+          <button id="skip" type="button">Not now</button>
+          <button id="allow" class="primary" type="button">Allow</button>
+        </div>
+        <p class="fine">
+          It reads a week back at most, on this computer, skipping incognito windows and the sites you exclude.
+          Rabbit is sent page titles and sites from the past two days, never full addresses. You can take this back on
+          your browser's extensions page.
+        </p>
+      </section>
+    </main>
+    <script src="js/grant.js"></script>
+  </body>
+</html>

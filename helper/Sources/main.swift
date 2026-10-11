@@ -13,23 +13,34 @@
 // person to grant in System Settings. It starts at login only if the person
 // turns on Open at Login in its menu.
 //
-//   WhiteRabbitHelper pair <origin> <code>   trade a pairing code for a device token
+//   WhiteRabbitHelper pair <origin> <code>   trade a pairing code for a device token, once the person confirms the account
+//   WhiteRabbitHelper unpair                 retire this Mac's device token and forget it (the uninstaller runs this)
 //   WhiteRabbitHelper sync-once              one sync, printed (for testing)
 //   WhiteRabbitHelper forget-login           turn off Open at Login (the uninstaller runs this)
+//   WhiteRabbitHelper about                  its version, and where it keeps the token (helper/build.sh checks this)
 //   WhiteRabbitHelper                        the menu bar app
 //
 // Build with helper/build.sh. A release build talks only to White Rabbit's
 // own site and reads only Safari's own history: anything else running on this
-// Mac can write its config file and its environment, and none of it may point
-// what it reads with Full Disk Access somewhere else. DEBUG=1 helper/build.sh
-// makes a development build that takes any address and the overrides below.
+// Mac can write files and the environment, and none of it may point what it
+// reads with Full Disk Access somewhere else. DEBUG=1 helper/build.sh makes a
+// development build that takes any address and the overrides below.
+//
+// For the same reason, the device token (which account the history goes to)
+// lives in the keychain, under the access group White Rabbit's Developer ID
+// provisioning profile gives this app: no other program can read, replace,
+// or delete it there. A file, or an item in the older file-based keychain,
+// can be rewritten by any program running as the person, even one that can't
+// read it. And since any program can also run `pair`, pairing asks the person
+// to confirm the account in a dialog only they can click.
 
 import AppKit
 import Foundation
+import Security
 import ServiceManagement
 import SQLite3
 
-let helperVersion = "1.0.0"
+let helperVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.1.0"
 let env = ProcessInfo.processInfo.environment
 
 // MARK: - Where things live
@@ -55,12 +66,20 @@ func override(_ name: String) -> String? {
 }
 
 enum Paths {
-    static let home = FileManager.default.homeDirectoryForCurrentUser
+    /** This user's home folder, from their account record; CFFIXED_USER_HOME can't move it. */
+    static let home: URL = {
+        if let pw = getpwuid(getuid()), let dir = pw.pointee.pw_dir {
+            return URL(fileURLWithPath: String(cString: dir), isDirectory: true)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+    }()
     static var support: URL {
         override("WHITE_RABBIT_HELPER_DIR").map { URL(fileURLWithPath: $0) }
             ?? home.appendingPathComponent("Library/Application Support/White Rabbit Helper")
     }
-    static var config: URL { support.appendingPathComponent("config.json") }
+    static var state: URL { support.appendingPathComponent("state.json") }
+    /** Where 1.0 kept its token, in plain text. */
+    static var legacyConfig: URL { support.appendingPathComponent("config.json") }
     static var history: URL {
         override("WHITE_RABBIT_SAFARI_HISTORY").map { URL(fileURLWithPath: $0) }
             ?? home.appendingPathComponent("Library/Safari/History.db")
@@ -75,24 +94,129 @@ enum Paths {
     }
 }
 
-struct Config: Codable {
-    var origin: String
+/** What pairing leaves in the keychain. */
+struct Credentials: Codable {
     var token: String
-    /** The last Safari visit (history_visits.id) already sent. */
-    var cursor: Int64
+    /** Where the token works. A release build only ever uses productionOrigin. */
+    var origin: String
 }
 
-func loadConfig() -> Config? {
-    guard let data = try? Data(contentsOf: Paths.config) else { return nil }
-    return try? JSONDecoder().decode(Config.self, from: data)
+/**
+ * The device token, as a generic password. A release build keeps it in the
+ * data protection keychain, in the access group its provisioning profile
+ * authorizes (its application identifier), which only code signed by White
+ * Rabbit's team can open, and refuses to keep it anywhere else. A DEBUG
+ * build, signed ad hoc, has no access group, so it uses the file-based
+ * keychain: other programs can't read the token there, but can replace it.
+ */
+enum Keychain {
+    #if DEBUG
+    private static let service = "app.whiterabbit.helper.debug"
+    #else
+    private static let service = "app.whiterabbit.helper"
+    #endif
+    private static let account = "device-token"
+
+    enum Failure: Error {
+        case unsigned
+        case status(OSStatus)
+    }
+
+    /** Signed with an application identifier, which only a provisioning profile can authorize. */
+    static let hasAccessGroup: Bool = {
+        guard let task = SecTaskCreateFromSelf(nil) else { return false }
+        return SecTaskCopyValueForEntitlement(task, "com.apple.application-identifier" as CFString, nil) != nil
+    }()
+
+    static var usable: Bool {
+        #if DEBUG
+        return true
+        #else
+        return hasAccessGroup
+        #endif
+    }
+
+    #if DEBUG
+    /** WHITE_RABBIT_HELPER_KEYCHAIN: a scratch keychain file, so tests leave the login keychain alone. */
+    private static let scratch: SecKeychain? = override("WHITE_RABBIT_HELPER_KEYCHAIN").flatMap { path in
+        var keychain: SecKeychain?
+        return SecKeychainOpen(path, &keychain) == errSecSuccess ? keychain : nil
+    }
+    #endif
+
+    private static func query(adding: Bool = false, _ extra: [String: Any] = [:]) -> [String: Any] {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        if hasAccessGroup {
+            query[kSecUseDataProtectionKeychain as String] = true
+        }
+        #if DEBUG
+        if let scratch, !hasAccessGroup {
+            if adding { query[kSecUseKeychain as String] = scratch } else { query[kSecMatchSearchList as String] = [scratch] }
+        }
+        #endif
+        return query.merging(extra) { $1 }
+    }
+
+    static func read() -> Credentials? {
+        guard usable else { return nil }
+        var out: CFTypeRef?
+        let status = SecItemCopyMatching(
+            query([kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]) as CFDictionary, &out
+        )
+        guard status == errSecSuccess, let data = out as? Data else {
+            if status != errSecItemNotFound { log("keychain read: \(status)") }
+            return nil
+        }
+        return try? JSONDecoder().decode(Credentials.self, from: data)
+    }
+
+    static func save(_ credentials: Credentials) throws {
+        guard usable else { throw Failure.unsigned }
+        delete()
+        var attributes: [String: Any] = [
+            kSecValueData as String: try JSONEncoder().encode(credentials),
+            kSecAttrLabel as String: "White Rabbit Helper",
+        ]
+        if hasAccessGroup {
+            // Never synced through iCloud, and there for it after the first unlock since startup.
+            attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        }
+        let status = SecItemAdd(query(adding: true, attributes) as CFDictionary, nil)
+        guard status == errSecSuccess else { throw Failure.status(status) }
+    }
+
+    static func delete() {
+        guard usable else { return }
+        SecItemDelete(query() as CFDictionary)
+    }
 }
 
-func saveConfig(_ config: Config) throws {
+/**
+ * The last Safari visit (history_visits.id) already sent, in a file. It isn't
+ * a secret, and changing it can only resend or skip this person's own pages.
+ */
+func loadCursor() -> Int64 {
+    guard let data = try? Data(contentsOf: Paths.state),
+          let state = try? JSONDecoder().decode([String: Int64].self, from: data) else { return 0 }
+    return state["cursor"] ?? 0
+}
+
+func saveCursor(_ cursor: Int64) throws {
     let fm = FileManager.default
     try fm.createDirectory(at: Paths.support, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-    try JSONEncoder().encode(config).write(to: Paths.config, options: .atomic)
-    // The token only lets it add pages to this person's captures; still, only they may read it.
-    try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: Paths.config.path)
+    try JSONEncoder().encode(["cursor": cursor]).write(to: Paths.state, options: .atomic)
+    try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: Paths.state.path)
+}
+
+/** 1.0's token, still in its plain-text file after an update, so it can be retired. */
+func legacyToken() -> String? {
+    guard let data = try? Data(contentsOf: Paths.legacyConfig),
+          let config = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+    return config["token"] as? String
 }
 
 func log(_ message: String) {
@@ -239,15 +363,17 @@ final class Syncer {
 
     /** Sends every visit Safari recorded since the last sync, then reports in. */
     func syncOnce() async -> (SyncStatus, Int) {
-        guard var config = loadConfig(), allowedOrigin(config.origin), let base = URL(string: config.origin) else {
+        guard let saved = Keychain.read(), allowedOrigin(saved.origin), let base = URL(string: saved.origin) else {
             return (.notPaired, 0)
         }
+        let token = saved.token
         let ingest = base.appendingPathComponent("api/safari-helper/ingest")
         let weekAgo = Date().timeIntervalSinceReferenceDate - 7 * 86_400
+        var cursor = loadCursor()
         var sent = 0
         do {
             while true {
-                let visits = try readVisits(after: config.cursor, since: weekAgo, limit: batchSize)
+                let visits = try readVisits(after: cursor, since: weekAgo, limit: batchSize)
                 if visits.isEmpty { break }
                 let pages: [[String: Any]] = visits.compactMap { v in
                     guard v.url.hasPrefix("http://") || v.url.hasPrefix("https://") else { return nil }
@@ -259,25 +385,25 @@ final class Syncer {
                     ]
                 }
                 let (code, _) = try await postJSON(
-                    ingest, token: config.token,
+                    ingest, token: token,
                     body: ["version": helperVersion, "access": true, "pages": pages]
                 )
                 if code == 401 { return (.disconnected, sent) }
                 guard code == 200 else { return (.offline, sent) }
-                config.cursor = visits[visits.count - 1].id
-                try saveConfig(config)
+                cursor = visits[visits.count - 1].id
+                try saveCursor(cursor)
                 sent += pages.count
                 lastReport = Date()
                 lastAccess = true
                 if visits.count < batchSize { break }
             }
             // Nothing new: still check in now and then, so White Rabbit knows it's running.
-            if sent == 0, try await report(access: true, to: ingest, token: config.token) == 401 {
+            if sent == 0, try await report(access: true, to: ingest, token: token) == 401 {
                 return (.disconnected, 0)
             }
             return (.watching, sent)
         } catch HistoryError.noAccess {
-            let code = try? await report(access: false, to: ingest, token: config.token)
+            let code = try? await report(access: false, to: ingest, token: token)
             return (code == 401 ? .disconnected : .needsAccess, 0)
         } catch HistoryError.missing {
             return (.noSafari, 0)
@@ -301,29 +427,117 @@ final class Syncer {
 
 // MARK: - Commands
 
-func pair(origin: String, code: String) async -> Int32 {
+/** Runs async work to the end from the main thread, which the commands keep free for a dialog. */
+func blocking<T>(_ work: @escaping () async throws -> T) throws -> T {
+    let semaphore = DispatchSemaphore(value: 0)
+    var result: Result<T, Error>!
+    Task.detached {
+        do { result = .success(try await work()) } catch { result = .failure(error) }
+        semaphore.signal()
+    }
+    semaphore.wait()
+    return try result.get()
+}
+
+/** Retires a device token at White Rabbit. 200 once it's retired (or already was), 401 if it was never valid. */
+func revoke(_ token: String, at base: URL) -> Int? {
+    try? blocking { try await postJSON(base.appendingPathComponent("api/safari-helper/revoke"), token: token, body: [:]).0 }
+}
+
+/**
+ * Pairing points this Mac's Safari history at an account, and any program
+ * running as the person can run `pair` with a code for an account of its
+ * own. So the person confirms the account in a dialog, which other programs
+ * can't click for them.
+ */
+func confirm(account: String) -> Bool {
+    #if DEBUG
+    if let answer = override("WHITE_RABBIT_HELPER_CONFIRM") { return answer == "yes" }
+    #endif
+    let app = NSApplication.shared
+    app.setActivationPolicy(.accessory)
+    app.activate(ignoringOtherApps: true)
+    let alert = NSAlert()
+    alert.messageText = "Connect White Rabbit Helper to \(account)?"
+    alert.informativeText = "It will send the pages you visit in Safari to this White Rabbit account, "
+        + "including pages from your iPhone and iPad if Safari syncs through iCloud. "
+        + "Connect only if this is your account."
+    alert.addButton(withTitle: "Connect")
+    alert.addButton(withTitle: "Cancel")
+    // Above Terminal, where the install command runs, even if macOS doesn't bring it forward.
+    alert.window.level = .floating
+    return alert.runModal() == .alertFirstButtonReturn
+}
+
+func pair(origin: String, code: String) -> Int32 {
     let origin = origin.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     guard allowedOrigin(origin), let base = URL(string: origin), base.scheme == "https" || base.host == "localhost" else {
         print("This White Rabbit Helper connects only to \(productionOrigin). For another address, build it with DEBUG=1 helper/build.sh.")
         return 1
     }
+    guard Keychain.usable else {
+        print("This copy of White Rabbit Helper isn't signed by White Rabbit, so it can't keep its connection safe. Copy the install command from White Rabbit again.")
+        return 1
+    }
+    let status: Int
+    let json: [String: Any]
     do {
-        let (status, json) = try await postJSON(
-            base.appendingPathComponent("api/safari-helper/claim"), token: nil, body: ["code": code]
-        )
-        guard status == 200, let token = json["token"] as? String else {
-            print(status == 401
-                ? "That pairing code has expired or was already replaced. Copy the command from White Rabbit again."
-                : "White Rabbit couldn't pair this Mac (\(status)). Try again.")
-            return 1
-        }
-        try saveConfig(Config(origin: base.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")), token: token, cursor: 0))
-        print("Paired with \(origin).")
-        return 0
+        (status, json) = try blocking { try await postJSON(base.appendingPathComponent("api/safari-helper/claim"), token: nil, body: ["code": code]) }
     } catch {
         print("Couldn't reach White Rabbit: \(error.localizedDescription)")
         return 1
     }
+    guard status == 200, let token = json["token"] as? String else {
+        print(status == 401
+            ? "That pairing code has expired or was already replaced. Copy the command from White Rabbit again."
+            : "White Rabbit couldn't pair this Mac (\(status)). Try again.")
+        return 1
+    }
+    // One plain line: it's shown in the dialog.
+    let account = (json["account"] as? String)
+        .flatMap { $0.split(whereSeparator: \.isNewline).first }
+        .map { String(String.UnicodeScalarView($0.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }).prefix(120)) }
+        .flatMap { $0.isEmpty ? nil : $0 } ?? "your White Rabbit account"
+    guard confirm(account: account) else {
+        _ = revoke(token, at: base)
+        print("Not connected. Nothing was sent.")
+        return 1
+    }
+
+    let previous = [Keychain.read()?.token, legacyToken()].compactMap { $0 }
+    do {
+        try saveCursor(0)
+        try Keychain.save(Credentials(token: token, origin: origin))
+    } catch {
+        _ = revoke(token, at: base)
+        print("Couldn't save the connection in the keychain (\(error)). Try again.")
+        return 1
+    }
+    // The token this replaces, and 1.0's plain-text file, are retired.
+    for old in Set(previous) where old != token { _ = revoke(old, at: base) }
+    try? FileManager.default.removeItem(at: Paths.legacyConfig)
+    print("Connected to \(account).")
+    return 0
+}
+
+/** Retires this Mac's token at White Rabbit and forgets it. The uninstaller runs this. */
+func unpair() -> Int32 {
+    let saved = Keychain.read()
+    let tokens = Set([saved?.token, legacyToken()].compactMap { $0 })
+    let origin = saved.map(\.origin).flatMap { allowedOrigin($0) ? $0 : nil } ?? productionOrigin
+    var retired = true
+    if let base = URL(string: origin) {
+        for token in tokens {
+            let code = revoke(token, at: base)
+            if code != 200 && code != 401 { retired = false }
+        }
+    }
+    Keychain.delete()
+    try? FileManager.default.removeItem(at: Paths.state)
+    try? FileManager.default.removeItem(at: Paths.legacyConfig)
+    if tokens.isEmpty || retired { return 0 }
+    print("Couldn't reach White Rabbit to disconnect this Mac. Select Disconnect in Settings → Capture & privacy on White Rabbit to finish.")
+    return 1
 }
 
 let args = CommandLine.arguments
@@ -332,27 +546,25 @@ if args.count >= 2 && args[1] == "pair" {
         print("usage: WhiteRabbitHelper pair <origin> <code>")
         exit(2)
     }
-    let semaphore = DispatchSemaphore(value: 0)
-    var code: Int32 = 1
-    Task {
-        code = await pair(origin: args[2], code: args[3])
-        semaphore.signal()
-    }
-    semaphore.wait()
-    exit(code)
+    exit(pair(origin: args[2], code: args[3]))
+}
+if args.count >= 2 && args[1] == "unpair" {
+    exit(unpair())
+}
+if args.count >= 2 && args[1] == "about" {
+    let token = Keychain.hasAccessGroup ? "It keeps its token in its own keychain access group."
+        : Keychain.usable ? "It keeps its token in the file-based keychain (a development build)."
+        : "It can't keep a token: it isn't signed by White Rabbit."
+    print("White Rabbit Helper \(helperVersion). \(token)")
+    exit(0)
 }
 if args.count >= 2 && args[1] == "forget-login" {
     if SMAppService.mainApp.status == .enabled { try? SMAppService.mainApp.unregister() }
     exit(0)
 }
 if args.count >= 2 && args[1] == "sync-once" {
-    let semaphore = DispatchSemaphore(value: 0)
-    Task {
-        let (status, sent) = await Syncer().syncOnce()
-        print("\(status) sent=\(sent) cursor=\(loadConfig()?.cursor ?? -1)")
-        semaphore.signal()
-    }
-    semaphore.wait()
+    let (status, sent) = try blocking { await Syncer().syncOnce() }
+    print("\(status) sent=\(sent) cursor=\(loadCursor())")
     exit(0)
 }
 
@@ -454,7 +666,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func openWhiteRabbit() {
-        let origin = loadConfig()?.origin
+        let origin = Keychain.read()?.origin
         if let url = URL(string: origin.map { allowedOrigin($0) ? $0 : productionOrigin } ?? productionOrigin) {
             NSWorkspace.shared.open(url)
         }

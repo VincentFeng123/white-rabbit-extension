@@ -18,7 +18,9 @@ Safari won't let a secure web page talk to an extension the way other browsers d
 
 Unlike the extension, the Helper sends what it reads to your White Rabbit account: every five minutes, the address (without the part after `#`), title and time of each new visit. White Rabbit applies your rules, and cleans each address with the same `clean-url.ts`, before anything is kept, only you can see it, and it's deleted after seven days. Safari doesn't keep Private Browsing in its history, so that's never included.
 
-A release build connects only to https://www.whiterabbt.com and reads only Safari's own history file, whatever its config file or environment says. `DEBUG=1 helper/build.sh` makes a development build that doesn't have those limits.
+When it pairs, the Helper shows you the account's email and connects only once you confirm it. It keeps its device token in your keychain, in an access group that only apps signed by White Rabbit's team can open, so no other program can read, replace or delete it. Its uninstall command disconnects the Mac from your account as it removes the Helper.
+
+The download is signed with White Rabbit's Developer ID (team FSRF52G5UF) and notarized by Apple, and the install command checks three things before anything runs: the download's SHA-256, that signature, and Gatekeeper. A release build connects only to https://www.whiterabbt.com and reads only Safari's own history file, whatever its environment says. `DEBUG=1 helper/build.sh` makes a development build that doesn't have those limits. [`helper/SIGNING.md`](helper/SIGNING.md) covers how releases are signed, and what that does and doesn't protect.
 
 ## Build it, and compare it with the store
 
@@ -37,7 +39,14 @@ To compare with what you installed, open your browser's extensions page, find Wh
 diff -r extension/dist/chrome "<that folder>"
 ```
 
-The Helper needs a Mac with Xcode: `pnpm build:helper`. Its build isn't reproducible byte for byte (compiler and signature details differ between machines), so if you'd rather not trust the download, build and run your own.
+The Helper needs a Mac with Xcode, and its build isn't reproducible byte for byte (compiler and signature details differ between machines). To check the copy you installed instead:
+
+```bash
+codesign -dv ~/Applications/"White Rabbit Helper.app"         # TeamIdentifier=FSRF52G5UF
+spctl --assess -vv ~/Applications/"White Rabbit Helper.app"   # source=Notarized Developer ID
+```
+
+If you'd rather not trust the download, `pnpm build:helper` makes a development build you can run. A release build needs White Rabbit's Developer ID, so yours is signed ad hoc on your Mac: it keeps its token in the older file-based keychain, where other programs can't read it but could replace it, and it can pair with any White Rabbit address.
 
 ## What's where
 

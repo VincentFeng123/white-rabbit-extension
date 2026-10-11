@@ -6,7 +6,7 @@
   "license": "MIT",
   "scripts": {
     "build": "node extension/build.mjs",
-    "build:helper": "sh helper/build.sh"
+    "build:helper": "DEBUG=1 sh helper/build.sh"
   },
   "devDependencies": {
     "esbuild": "0.28.2",

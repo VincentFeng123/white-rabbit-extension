@@ -4,7 +4,9 @@
  * Adding the extension never asks for the browser's history; this does, and
  * only from a click here, because browsers ask for a permission only from
  * the extension's own page. With it, Rabbit's first look can read browsing
- * from before the extension was added. White Rabbit only ever reads it.
+ * from before the extension was added: the past two days of it, as the
+ * window's fine print says (later looks read on from where the last one
+ * stopped). White Rabbit only ever reads it.
  */
 
 import { ext, TARGET } from "./shared";

@@ -28,7 +28,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
 const dist = join(here, "dist");
 const publicDir = join(root, "public", "extension");
-const VERSION = "0.5.0";
+const VERSION = "0.5.1";
 
 const DEV = isDevBuild();
 const origins = appOrigins(process.env, DEV);

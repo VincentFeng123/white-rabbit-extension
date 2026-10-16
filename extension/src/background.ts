@@ -30,7 +30,14 @@ import {
   type Sensitive,
 } from "../../src/lib/capture/detect";
 import { parseSearch } from "../../src/lib/capture/search-engines";
-import { browserName, buildSnapshot, domainOf, type CapturedTab } from "../../src/lib/capture/snapshot";
+import {
+  browserName,
+  buildSnapshot,
+  domainOf,
+  historyVisits,
+  type CapturedTab,
+  type HistoryVisit,
+} from "../../src/lib/capture/snapshot";
 import {
   APP_ORIGIN,
   APP_ORIGINS,
@@ -281,15 +288,16 @@ async function historyPages(since: number, recorded: DetectEvent[]): Promise<Det
     .sort((a, b) => (b.lastVisitTime ?? 0) - (a.lastVisitTime ?? 0))
     .slice(0, MAX_HISTORY_ITEMS);
 
+  // Only visits made in this browser: none synced from the person's other devices.
   const visits = await Promise.all(
     recent.map(async (it) => {
+      let vs: HistoryVisit[] = [];
       try {
-        const vs: { visitId: string; visitTime?: number; referringVisitId?: string; transition?: string }[] =
-          await ext.history.getVisits({ url: it.url });
-        return { it, vs: vs.filter((v) => (v.visitTime ?? 0) >= since) };
+        vs = await ext.history.getVisits({ url: it.url });
       } catch {
-        return { it, vs: [] };
+        /* its last visit stands in */
       }
+      return { it, vs: historyVisits(it, vs, since) };
     }),
   );
 
@@ -308,19 +316,9 @@ async function historyPages(since: number, recorded: DetectEvent[]): Promise<Det
   const out: DetectEvent[] = [];
   for (const { it, vs } of visits) {
     const url = kept.get(it.url!)!;
-    const list = vs.length
-      ? vs
-      : [
-          {
-            visitId: `i${it.id}`,
-            visitTime: it.lastVisitTime,
-            transition: it.typedCount ? "typed" : "link",
-            referringVisitId: undefined,
-          },
-        ];
-    for (const v of list) {
+    for (const v of vs) {
       const t = v.visitTime ?? 0;
-      if (t < since || alreadyRecorded(url, t)) continue;
+      if (alreadyRecorded(url, t)) continue;
       const referrer =
         v.referringVisitId && v.referringVisitId !== "0" && v.referringVisitId !== "-1"
           ? urlOfVisit.get(v.referringVisitId)

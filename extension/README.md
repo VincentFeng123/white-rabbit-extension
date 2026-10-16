@@ -1,6 +1,6 @@
 # White Rabbit browser extension
 
-Notices when you go down a rabbit hole (open tabs, searches, and the links between them) and shows it on White Rabbit. Adding it asks to "Read your browsing history" (tabs and navigation); the browser's own history is an optional permission it asks for only when the person turns on Rabbit (`grant.html`). There's nothing to press: whenever White Rabbit is open in this browser, it reads the past week from here by itself. What it reads goes only to White Rabbit tabs in this browser; the extension itself uploads nothing. If the person turns on Rabbit in White Rabbit, the app sends page titles and search queries, site names, which page led to which, and time spent, plus the titles of their rabbit holes that aren't private and of Rabbit's own earlier suggestions, to its AI provider once a day, never full addresses (see [Rabbit asks first](../README.md#rabbit-asks-first)).
+Notices when you go down a rabbit hole (open tabs, searches, and the links between them) and shows it on White Rabbit. Adding it asks to "Read your browsing history" (tabs and navigation); the browser's own history is an optional permission it asks for only when the person turns on Rabbit (`grant.html`). There's nothing to press: whenever White Rabbit is open in this browser, it reads the past week from here by itself. What it reads goes only to White Rabbit tabs in this browser; the extension itself uploads nothing. If the person turns on Rabbit in White Rabbit, the app sends page titles and search queries, site names, which page led to which, and time spent, plus the titles of their rabbit holes that aren't private and of Rabbit's own earlier suggestions, to its AI provider once a day, never full addresses (see [Rabbit asks first](../README.md#rabbit-asks-first)), and tells White Rabbit how many rabbit holes Rabbit found and in which browser, never what they are.
 
 One codebase, three builds:
 
@@ -42,11 +42,11 @@ Once it's in a store, set `NEXT_PUBLIC_EXTENSION_CHROME_URL`, `…_FIREFOX_URL`,
 
 | Piece | File | Does |
 | --- | --- | --- |
-| Background | `src/background.ts` | Records page views in normal windows (`"incognito": "not_allowed"`). Drops excluded pages before they're stored and keeps a rolling week in local storage. When a White Rabbit tab asks, gathers open tabs, recorded pages, and, once allowed, browser history (`history.search` + `getVisits`, which gives the link graph through `referringVisitId`), and runs every rule. On install, adds the content script to White Rabbit tabs already open. Also runs detection every 5 minutes and shows a badge count. |
-| Look back | `grant.html`, `src/grant.ts` | "Start with the past two days?" The background script opens it in a small window when a White Rabbit tab says Rabbit was just turned on (`lookBack`). **Allow** asks the browser for the optional `history` permission; browsers ask only from a click on the extension's own page. The app holds Rabbit's first look until it's answered or closed. |
+| Background | `src/background.ts` | Records page views in normal windows (`"incognito": "not_allowed"`). Drops excluded pages before they're stored and keeps a rolling week in local storage. When a White Rabbit tab asks, gathers open tabs, recorded pages, and, once allowed, browser history (`history.search` + `getVisits`, which gives the link graph through `referringVisitId`; visits a Chromium browser marks `isLocal: false`, synced from the person's other devices, are skipped), and runs every rule. On install, adds the content script to White Rabbit tabs already open. Also runs detection every 5 minutes and shows a badge count. |
+| Look back | `grant.html`, `src/grant.ts` | "Start with the past two days?" The background script opens it in a small window when a White Rabbit tab says Rabbit was just turned on (`lookBack`). **Allow** asks the browser for the optional `history` permission; browsers ask only from a click on the extension's own page. Its fine print says what Rabbit's first look is sent from the past two days (later looks carry on from where the last one stopped). The app holds Rabbit's first look until it's answered or closed. |
 | Content script | `src/bridge.ts` | Runs only on the White Rabbit origins it was built for, from `document_start`. Announces itself (`present`), relays the page's `hello` / `capture` / `forget` requests to the background script, and hands over a rabbit hole picked in the popup. |
 | Popup | `popup.html`, `src/popup.ts` | Whether it's on, **Open White Rabbit**, the current possible rabbit hole with **Review** and **Ignore**, pause controls, and settings. |
-| Shared code | `../src/lib/capture/{snapshot,detect,search-engines,clean-url}.ts` | The same capture, detection and address-cleaning code the web app uses |
+| Shared code | `../src/lib/capture/{snapshot,detect,search-engines,clean-url}.ts` | The same capture, detection and address-cleaning code the web app uses. On White Rabbit's own pages, `clean-url.ts` also cuts who shared a link and which push or email it came from (`from`, `src`, `k`). |
 
 The background script answers `hello`, `capture`, `pull`, `forget`, and `lookBack` only from White Rabbit pages, and the popup's own messages only from the popup. The app validates everything it receives and applies the person's rules again.
 
@@ -56,6 +56,7 @@ Anything running in a White Rabbit page can ask for the same things the page can
 
 - Never runs in private or incognito windows.
 - Pages on the never-analyze list, in sensitive categories (banking, medical, email, work tools, password managers, adult), or on sign-in/checkout paths are discarded, not stored. The app's own list is applied too, when it asks for a capture.
+- Every address is cleaned before it's stored: fragments, sign-in tokens and other secrets, click trackers, and, on White Rabbit's own pages, who shared the link and which push or email it came from.
 - Pausing stops recording immediately. Nothing observed while paused is kept.
 - History older than a week is deleted automatically.
 - **Delete history** in White Rabbit clears what it recorded here too.

@@ -1,6 +1,6 @@
 {
   "name": "white-rabbit-extension",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "description": "White Rabbit's browser extension and Safari helper: what runs on your computer.",
   "license": "MIT",

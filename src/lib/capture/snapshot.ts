@@ -178,6 +178,34 @@ function deriveSearches(pages: DetectEvent[], tabs: CapturedTab[], capturedAt: s
   return out.sort((a, b) => b.at.localeCompare(a.at));
 }
 
+/** One visit to a page, as the browser's history API reports it (history.getVisits). */
+export interface HistoryVisit {
+  visitId: string;
+  visitTime?: number;
+  referringVisitId?: string;
+  transition?: string;
+  /** Chromium 115+: false when the visit was synced from another of the person's devices. Firefox doesn't say. */
+  isLocal?: boolean;
+}
+
+/**
+ * A history page's visits since `since` that were made in this browser. With
+ * history sync on, Chromium's history also holds visits from the person's
+ * phone and other computers; those stay out, and so does a page seen here
+ * only on them. When the browser gives no visits for a page, its last visit
+ * stands in.
+ */
+export function historyVisits(
+  page: { id: string; lastVisitTime?: number; typedCount?: number },
+  visits: HistoryVisit[],
+  since: number,
+): HistoryVisit[] {
+  const list = visits.length
+    ? visits.filter((v) => v.isLocal !== false)
+    : [{ visitId: `i${page.id}`, visitTime: page.lastVisitTime, transition: page.typedCount ? "typed" : "link" }];
+  return list.filter((v) => (v.visitTime ?? 0) >= since);
+}
+
 export interface SnapshotInput {
   source: CaptureSource;
   browser: string;

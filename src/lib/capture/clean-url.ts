@@ -101,8 +101,15 @@ function publicId(u: URL, name: string): boolean {
   );
 }
 
-/** Parameters a site adds to say who shared a link. */
-const SITE_SHARER: Array<[host: RegExp, drop: string[]]> = [[/^(mobile\.)?(x|twitter)\.com$/, ["s", "t"]]];
+/**
+ * Parameters a site adds to say who shared a link, or what brought someone:
+ * on White Rabbit's own pages, who shared it (from) and which push or email
+ * it came from (src, k).
+ */
+const SITE_SHARER: Array<[host: RegExp, drop: string[]]> = [
+  [/^(mobile\.)?(x|twitter)\.com$/, ["s", "t"]],
+  [/^whiterabbt\.com$/, ["from", "src", "k"]],
+];
 
 /** Parameters that only track a click or a share. */
 const TRACKING =

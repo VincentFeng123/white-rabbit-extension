@@ -61,7 +61,7 @@ Notices when you go down a rabbit hole and shows it to you on White Rabbit, priv
 >
 > • Private until you choose. Every rabbit hole it notices waits for you. Share it, keep it private, or ignore it.
 > • Never in incognito or private windows.
-> • Skips what you'd rather keep to yourself: banking, health, email, work tools, password managers, adult sites, sign-in and checkout pages, links to shared docs and meetings, and any site you add to your Never analyze list. Addresses are kept without sign-in tokens or other secrets.
+> • Skips what you'd rather keep to yourself: banking, health, email, work tools, password managers, adult sites, sign-in and checkout pages, links to shared docs and meetings, and any site you add to your Never analyze list. Addresses are kept without sign-in tokens or other secrets, and White Rabbit's own without who shared them or which push or email they came from.
 > • Pause it any time, or delete everything it recorded from White Rabbit's settings.
 > • Works in Chrome, Edge, Brave, Opera, Vivaldi, Arc, and Firefox.
 > • Open source: read exactly what it does at https://github.com/VincentFeng123/white-rabbit-extension
@@ -76,7 +76,7 @@ White Rabbit notices rabbit holes in your browsing (the searches and pages that 
 
 ### `history`
 
-Optional, and never asked for when the extension is added. When you turn on Rabbit in White Rabbit, the extension opens a small window of its own, "Start with the past two days?", and asks for it only if you press Allow there. With it, the extension reads the past week of your browser history, and which visit led to which, so a rabbit hole you went down before installing the extension can still be noticed. Only pages that pass your rules are kept, and only for a week. Without it, the extension notices what you browse from when it was added. (Not in the Safari build, which has no history API.)
+Optional, and never asked for when the extension is added. When you turn on Rabbit in White Rabbit, the extension opens a small window of its own, "Start with the past two days?", and asks for it only if you press Allow there. Its fine print says what Rabbit's first look is sent: the titles and sites of pages from the past two days, never full addresses (later looks carry on from where the last one stopped). With the permission, the extension reads the past week of your browser history, and which visit led to which, so a rabbit hole you went down before installing the extension can still be noticed. Only pages that pass your rules are kept, and only for a week. Without it, the extension notices what you browse from when it was added. (Not in the Safari build, which has no history API.)
 
 ### `tabs`
 

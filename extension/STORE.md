@@ -63,10 +63,11 @@ Notices when you go down a rabbit hole and shows it to you on White Rabbit, priv
 > • Never in incognito or private windows.
 > • Skips what you'd rather keep to yourself: banking, health, email, work tools, password managers, adult sites, sign-in and checkout pages, links to shared docs and meetings, and any site you add to your Never analyze list. Addresses are kept without sign-in tokens or other secrets, and White Rabbit's own without who shared them or which push or email they came from.
 > • Pause it any time, or delete everything it recorded from White Rabbit's settings.
-> • Works in Chrome, Edge, Brave, Opera, Vivaldi, Arc, and Firefox.
 > • Open source: read exactly what it does at https://github.com/VincentFeng123/white-rabbit-extension
 >
 > What it reads goes only to White Rabbit tabs in this browser. Rabbit is off until you turn it on. If you do, once a day White Rabbit sends the page titles and search queries, site names, which page led to which, and time spent from browsing sittings you've finished, plus the titles of your rabbit holes that aren't private and of Rabbit's own earlier suggestions, to our AI provider, so Rabbit can suggest rabbit holes. Full addresses, the sites and categories you exclude, and incognito windows are never sent. The provider can't use it to train its models, and nothing is shared until you review it.
+
+The description names no browsers: the Chrome Web Store rejected the first submission (October 2026) for a line listing the ones it works in, as keyword spam.
 
 ## Single purpose
 
